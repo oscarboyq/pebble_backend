@@ -1,0 +1,14 @@
+.env.local
+*.sqlite3
+staticfiles/
+pebble_backup.dump
+
+__pycache__/
+.pytest_cache/
+*.py[cod]
+
+PHASE*.md
+PHASE*.json
+SHOP_*.md
+SHOP_*.json
+PEBBLE_GALLERY_IMPORT_REPORT.md
