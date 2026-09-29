@@ -7,7 +7,7 @@ from products.models import Product, ProductVariant
 from coupons.models import Coupon
 from cart.pricing import quote_cart, PricingError
 
-from .models import Order, OrderItem
+from .models import Order, OrderItem, OrderStatusEvent
 from cart.models import Cart
 from .serializers import OrderSerializer, OrderItemSerializer, PlaceOrderSerializer
 
@@ -73,6 +73,7 @@ class PlaceOrderView(APIView):
             coupon_code=quote.coupon_code,
             pricing_snapshot=quote.snapshot(),
         )
+        OrderStatusEvent.objects.create(order=order, status='pending', occurred_at=order.created_at)
         for cart_item, line in zip(items, quote.lines):
             OrderItem.objects.create(
                 order=order,
@@ -100,7 +101,7 @@ class OrderListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        orders = Order.objects.filter(user=request.user).prefetch_related('items__product', 'items__variant')
+        orders = Order.objects.filter(user=request.user).prefetch_related('items__product', 'items__variant', 'status_events')
         serializer = OrderSerializer(orders, many=True)
         return Response(serializer.data)
 
@@ -110,7 +111,7 @@ class OrderDetailView(APIView):
 
     def get(self, request, order_id):
         try:
-            order = Order.objects.prefetch_related('items__product', 'items__variant').get(
+            order = Order.objects.prefetch_related('items__product', 'items__variant', 'status_events').get(
                 id=order_id, user=request.user
             )
         except Order.DoesNotExist:

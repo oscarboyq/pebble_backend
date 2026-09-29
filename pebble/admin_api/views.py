@@ -18,7 +18,8 @@ from products.serializers import (ProductSerializer,
                                 CategoryVariantTemplateSerializer,
                                 CategoryVariantOptionSerializer
                                 )
-from orders.serializers import OrderSerializer
+from orders.serializers import OrderSerializer, OrderStatusUpdateSerializer
+from orders.lifecycle import update_order_status
 from home.models import (
     BannerSlide,
     PromoBar,
@@ -261,7 +262,7 @@ class AdminOrderListView(APIView):
 
     def get(self, request):
         status_filter = request.query_params.get('status', '').strip()
-        orders = Order.objects.select_related('user').prefetch_related('items')
+        orders = Order.objects.select_related('user').prefetch_related('items', 'status_events')
         if status_filter:
             orders = orders.filter(status=status_filter)
         serializer = OrderSerializer(orders, many=True, context={'request': request})
@@ -273,42 +274,19 @@ class AdminOrderDetailView(APIView):
 
     def get(self, request, pk):
         try:
-            order = Order.objects.prefetch_related('items').get(pk=pk)
+            order = Order.objects.prefetch_related('items', 'status_events').get(pk=pk)
         except Order.DoesNotExist:
             return Response({'detail': 'Not found.'}, status=404)
         serializer = OrderSerializer(order, context={'request': request})
         return Response(serializer.data)
 
     def patch(self, request, pk):
+        serializer = OrderStatusUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         try:
-            order = Order.objects.get(pk=pk)
+            order = update_order_status(pk, serializer.validated_data, request.user)
         except Order.DoesNotExist:
             return Response({'detail': 'Not found.'}, status=404)
-
-        new_status = request.data.get('status', '').strip()
-        valid = [s[0] for s in Order.STATUS_CHOICES]
-        if new_status not in valid:
-            return Response(
-                {'status': f'Must be one of: {", ".join(valid)}'},
-                status=400,
-            )
-        order.status = new_status
-
-        # When marking as shipped, capture shipping dispatch details
-        if new_status == 'shipped':
-            if 'carrier' in request.data:
-                order.carrier = request.data['carrier']
-            if 'tracking_number' in request.data:
-                order.tracking_number = request.data['tracking_number']
-            if 'handled_by' in request.data:
-                order.handled_by = request.data['handled_by']
-            if 'estimated_delivery' in request.data:
-                order.estimated_delivery = request.data['estimated_delivery'] or None
-            if 'shipping_notes' in request.data:
-                order.shipping_notes = request.data['shipping_notes']
-            order.shipped_at = timezone.now()
-
-        order.save()
         serializer = OrderSerializer(order, context={'request': request})
         return Response(serializer.data)
     
@@ -636,6 +614,14 @@ class AdminCategoryListView(APIView):
             is_featured=is_featured_raw in (True, 1, '1', 'true', 'True'),
         )
 
+        image_fields = []
+        for field in ('image', 'banner_image'):
+            if field in request.FILES:
+                setattr(category, field, request.FILES[field])
+                image_fields.append(field)
+        if image_fields:
+            category.save(update_fields=image_fields)
+
         return Response(AdminCategorySerializer(category, context={'request': request}).data, status=201)
     
 
@@ -666,8 +652,9 @@ class AdminCategoryDetailView(APIView):
         if 'is_featured' in request.data:
             val = request.data['is_featured']
             category.is_featured = val in (True, 1, '1', 'true', 'True')
-        if 'image' in request.FILES:
-            category.image = request.FILES['image']
+        for field in ('image', 'banner_image'):
+            if field in request.FILES:
+                setattr(category, field, request.FILES[field])
         category.save()
         return Response(AdminCategorySerializer(category, context={'request': request}).data)
     

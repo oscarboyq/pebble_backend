@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.utils import timezone
 from products.models import Product, ProductVariant
 
 
@@ -44,6 +45,7 @@ class Order(models.Model):
     # Shipping dispatch info (filled when status changes to shipped)
     carrier = models.CharField(max_length=20, choices=CARRIER_CHOICES, blank=True, default='')
     tracking_number = models.CharField(max_length=100, blank=True, default='')
+    tracking_url = models.URLField(blank=True, default='')
     handled_by = models.CharField(max_length=150, blank=True, default='',
         help_text='Name of the staff member who dispatched this order')
     estimated_delivery = models.DateField(null=True, blank=True)
@@ -70,3 +72,17 @@ class OrderItem(models.Model):
 
     def __str__(self):
         return f"{self.quantity} x {self.product.name} ({self.variant}) - {self.line_total}"
+
+
+class OrderStatusEvent(models.Model):
+    """Recorded store-side milestone, not a carrier's live scan history."""
+
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='status_events')
+    status = models.CharField(max_length=20, choices=Order.STATUS_CHOICES)
+    occurred_at = models.DateTimeField(default=timezone.now)
+    changed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    note = models.CharField(max_length=255, blank=True, default='')
+
+    class Meta:
+        ordering = ['occurred_at', 'id']
+        indexes = [models.Index(fields=['order', 'occurred_at'])]

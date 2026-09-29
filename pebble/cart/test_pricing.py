@@ -76,6 +76,7 @@ class PricingCheckoutTests(APITestCase):
         response = self.client.post('/api/orders/place/', ADDRESS, format='json')
         self.assertEqual(response.status_code, 201)
         order = Order.objects.get(pk=response.data['id'])
+        self.assertEqual([event['status'] for event in response.data['status_events']], ['pending'])
         self.assertEqual((order.subtotal_amount, order.discount_amount, order.total_amount),
                          (Decimal('20.00'), Decimal('0.00'), Decimal('20.00')))
         self.assertEqual(order.pricing_snapshot['total'], '20.00')
